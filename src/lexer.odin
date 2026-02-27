@@ -22,7 +22,7 @@ Lexer :: struct {
 
 Token_Tag :: enum {
     let,
-    literal,
+    ident,
     integer,
     function,
     plus,
@@ -170,7 +170,7 @@ get_literal_tag :: proc(literal: string) -> Token_Tag {
         return tag
     }
 
-    return .literal
+    return .ident
 }
 
 @(private="file")
