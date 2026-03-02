@@ -6,6 +6,7 @@ import "core:testing"
 test_next_token :: proc(t: ^testing.T) {
     l: ^Lexer
     tok: Token
+
     test_string := `
     let five = 5;
     let ten = 10;
@@ -107,6 +108,8 @@ test_next_token :: proc(t: ^testing.T) {
     }
 
     l = lexer_init(test_string)
+    defer lexer_deinit(l)
+
     tok = lexer_get_token(l)
     for tag in test_res {
         testing.expectf(t, tag.tag == tok.tag, "expected %v, got %v", tag.tag, tok.tag)

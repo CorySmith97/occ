@@ -66,6 +66,11 @@ lexer_init :: proc(input: string) -> ^Lexer {
     return l
 }
 
+lexer_deinit :: proc(l: ^Lexer) {
+    free(l)
+}
+
+
 lexer_get_token :: proc(l: ^Lexer) -> Token {
     t: Token
 
