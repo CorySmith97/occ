@@ -1,3 +1,4 @@
+#+feature dynamic-literals
 package main
 
 import "core:strconv"
@@ -10,6 +11,8 @@ import "core:log"
 // I could also use some more function overrides in order to better implement things
 // ie the way that append() in the base of the language works.
 
+
+// @todo:cs integers are taking the parse_expression path and throwing errors.
 Ast_Node_Tag :: enum {
     expression,
     statement,
@@ -23,6 +26,17 @@ Expression_Precedence :: enum {
     product,
     prefix,
     call,
+}
+
+precendences := map[Token_Tag]Expression_Precedence {
+    .eq = .equal,
+    .not_eq = .equal,
+    .lt = .lessgreater,
+    .gt = .lessgreater,
+    .plus = .sum,
+    .minus = .sum,
+    .slash = .product,
+    .asterisk = .product,
 }
 
 Expression :: union {
@@ -49,6 +63,7 @@ Prefix_Expression :: struct {
 }
 
 Infix_Expression :: struct {
+    token: Token,
     lhs: ^Expression,
     rhs: ^Expression,
     operator: string,
@@ -120,6 +135,15 @@ parser_init :: proc(lexer: ^Lexer) -> ^Parser {
     parser_register_prefix(p, .bang,    parse_prefix_expression)
     parser_register_prefix(p, .minus,   parse_prefix_expression)
 
+    parser_register_infix(p, .plus,     parse_infix_expression)
+    parser_register_infix(p, .minus,    parse_infix_expression)
+    parser_register_infix(p, .slash,    parse_infix_expression)
+    parser_register_infix(p, .asterisk, parse_infix_expression)
+    parser_register_infix(p, .eq,       parse_infix_expression)
+    parser_register_infix(p, .not_eq,   parse_infix_expression)
+    parser_register_infix(p, .lt,       parse_infix_expression)
+    parser_register_infix(p, .gt,       parse_infix_expression)
+
     return p
 }
 
@@ -169,6 +193,35 @@ error_peek :: proc(p: ^Parser, tag: Token_Tag) {
         message = error,
         tag = .unexpected_token,
     })
+}
+
+peek_precedence :: proc(p: ^Parser) -> Expression_Precedence {
+    if p, ok := precendences[p.peek_token.tag]; ok {
+        return p
+    }
+
+    return .lowest
+}
+
+curr_precedence :: proc(p: ^Parser) -> Expression_Precedence {
+    if p, ok := precendences[p.curr_token.tag]; ok {
+        return p
+    }
+
+    return .lowest
+}
+
+parse_infix_expression :: proc(p: ^Parser, lhs: ^Expression) -> ^Expression {
+    ex := new(Infix_Expression)
+
+    ex.token = p.curr_token
+    ex.operator = p.curr_token.literal
+    ex.lhs = lhs
+    precedence := curr_precedence(p)
+    next_token(p)
+    ex.rhs = parse_expression(p, precedence)
+
+    return auto_cast ex
 }
 
 parse_prefix_expression :: proc(p: ^Parser) -> ^Expression {
@@ -243,7 +296,20 @@ parse_expression :: proc(p: ^Parser, precedence: Expression_Precedence) -> ^Expr
     if prefix, ok := p.prefix_parse_fns[p.curr_token.tag]; ok {
         // returns the left hand prefix
         func := prefix
-        return func(p)
+        left_expression := func(p)
+
+        for (!peek_token_is(p, .semicolon)) && (precedence < peek_precedence(p)) {
+            infix, ok := p.infix_parse_fns[p.peek_token.tag];
+            if !ok {
+                return nil
+            }
+            infix_fn := infix
+            next_token(p)
+
+            left_expression = infix(p, left_expression)
+        }
+
+        return left_expression
     }
     error_no_prefix_fn(p, p.curr_token.tag)
     return nil
