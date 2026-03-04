@@ -8,7 +8,7 @@ parser_test :: proc(t: ^testing.T) {
     input := `
     let x = 5;
     let y = 10;
-    let foobar = 838383;
+    let foobar = true;
     return foobar;
     `
     defer free_all(context.allocator)
@@ -227,12 +227,55 @@ parser_test_precendence :: proc(t: ^testing.T) {
     }
 }
 
-test_integer_literal :: proc(t: ^testing.T, ex: Integer_Literal, expected: int) {
+@test
+parser_test_expressions :: proc(t: ^testing.T) {
+    Expression_Test :: struct {
+        input: string,
+        value: bool,
+    }
 
-    testing.expectf(t, ex.value == expected, "Integer Literal does not match expected: %d, got %d", expected, ex.value)
+    tests := [?]Expression_Test{
+        {"true",   true,},
+        {"false",  false,},
+        {"!true",  false,},
+        {"!false", true,},
+    }
+
+    for test, i in tests {
+    defer free_all(context.allocator)
+
+    l := lexer_init(test.input)
+    p := parser_init(l)
+
+    program := parse_program(p)
+    if program == nil {
+        testing.fail(t)
+    }
+
+    check_parser_errors(t, p)
+        value := program.statements[i]
+        switch &val in program.statements[i] {
+        case Ast_Let_Statement:
+            test_statement_let(t, &val)
+        case Ast_Return_Statement:
+            test_statement_return(t, &val)
+        case Ast_Expression_Statement:
+            test_statement_expression(t, &val)
+        }
+    }
+}
+
+test_integer_literal :: proc(t: ^testing.T, ex: ^Expression, expected: int) {
+    ident, ok := ex.(Integer_Literal)
+    if !ok {
+        return
+    }
+
+    testing.expectf(t, ident.value == expected, "Integer Literal does not match expected: %d, got %d", expected, ident.value)
 }
 
 test_statement_let :: proc(t: ^testing.T, stmt: ^Ast_Let_Statement) {
+
 }
 
 test_statement_return :: proc(t: ^testing.T, stmt: ^Ast_Return_Statement) {
@@ -241,7 +284,13 @@ test_statement_return :: proc(t: ^testing.T, stmt: ^Ast_Return_Statement) {
 test_statement_expression :: proc(t: ^testing.T, stmt: ^Ast_Expression_Statement) {
 }
 
-test_identity :: proc(t: ^testing.T, stmt: ^Identitifer) {
+test_identitifer :: proc(t: ^testing.T, stmt: ^Expression, value: string) {
+    ident, ok := stmt.(Identitifer)
+    if !ok {
+        return
+    }
+
+    testing.expectf(t, ident.value == value, "Expected: %s, got: %s", value, ident.value)
 }
 
 check_parser_errors :: proc(t: ^testing.T, p: ^Parser) {

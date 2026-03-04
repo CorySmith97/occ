@@ -38,6 +38,7 @@ precendences := map[Token_Tag]Expression_Precedence {
 }
 
 Expression :: union {
+    Boolean,
     Identitifer,
     Integer_Literal,
     Prefix_Expression,
@@ -65,6 +66,11 @@ Infix_Expression :: struct {
     lhs: ^Expression,
     rhs: ^Expression,
     operator: string,
+}
+
+Boolean :: struct {
+    token: Token,
+    value: bool,
 }
 
 Ast_Expression_Statement :: struct {
@@ -128,10 +134,12 @@ parser_init :: proc(lexer: ^Lexer) -> ^Parser {
     next_token(p)
     next_token(p)
 
-    parser_register_prefix(p, .ident,   parse_identifier)
-    parser_register_prefix(p, .integer, parse_integer_literal)
-    parser_register_prefix(p, .bang,    parse_prefix_expression)
-    parser_register_prefix(p, .minus,   parse_prefix_expression)
+    parser_register_prefix(p, .ident,     parse_identifier)
+    parser_register_prefix(p, .integer,   parse_integer_literal)
+    parser_register_prefix(p, .tok_true,  parse_boolean)
+    parser_register_prefix(p, .tok_false, parse_boolean)
+    parser_register_prefix(p, .bang,      parse_prefix_expression)
+    parser_register_prefix(p, .minus,     parse_prefix_expression)
 
     parser_register_infix(p, .plus,     parse_infix_expression)
     parser_register_infix(p, .minus,    parse_infix_expression)
@@ -327,6 +335,27 @@ parse_expression :: proc(p: ^Parser, precedence: Expression_Precedence) -> ^Expr
     return nil
 }
 
+parse_boolean :: proc(p: ^Parser) -> ^Expression {
+    exp := new(Expression)
+    literal := Boolean{}
+    ok: bool
+
+    literal.value, ok = strconv.parse_bool(p.curr_token.literal)
+    if !ok {
+        add_error(p, Parser_Error{
+            tag = .integer_parse_error,
+            message = "failed to parse boolean",
+            file = #file,
+            location = #line,
+        })
+    }
+    literal.token = p.curr_token
+
+    exp^ = literal
+
+    return exp
+}
+
 parse_integer_literal :: proc(p: ^Parser) -> ^Expression {
     exp := new(Expression)
     literal := Integer_Literal{}
@@ -435,6 +464,8 @@ to_string_program :: proc(prog: ^Program) -> string {
 
 to_string_expression :: proc(ex: ^Expression) -> string {
     switch v in ex {
+    case Boolean:
+        return fmt.aprintf("%b", v.value)
     case Identitifer:
         return fmt.aprintf("%s", v.value)
     case Integer_Literal:
