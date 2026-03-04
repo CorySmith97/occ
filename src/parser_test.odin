@@ -113,16 +113,10 @@ parser_test_prefix_expression :: proc(t: ^testing.T) {
             testing.fail(t)
         }
         stmt := program.statements[0]
+        v := stmt.(Ast_Expression_Statement)
+        prefix := v.expression.(Prefix_Expression)
 
-        #partial switch s in stmt {
-        case Ast_Expression_Statement:
-            expression := s.expression
-            #partial switch v in expression {
-            case Prefix_Expression:
-                prefix := expression.(Prefix_Expression)
-                testing.expectf(t, test.operator == prefix.operator, "Expected operator to be %s, got %s", test.operator, prefix.operator)
-            }
-        }
+        testing.expectf(t, test.operator == prefix.operator, "Expected operator to be %s, got %s", test.operator, prefix.operator)
         // @todo:cs implement tests for prefixes
     }
 }
@@ -144,7 +138,7 @@ parser_test_infix_expression :: proc(t: ^testing.T) {
         {"5 < 5;", 5, "<", 5},
         {"5 > 5;", 5, ">", 5},
         {"5 == 5;", 5, "==", 5},
-        {"5 != 5;", 5, "==", 5},
+        {"5 != 5;", 5, "!=", 5},
     }
 
     for test, index in tests {
@@ -156,13 +150,80 @@ parser_test_infix_expression :: proc(t: ^testing.T) {
         check_parser_errors(t, p)
 
         stmt := program.statements[0]
-        #partial switch s in stmt {
-        case Ast_Expression_Statement:
-            #partial switch v in s.expression {
-            case Infix_Expression:
-                testing.expectf(t, v.operator == test.operator, "operators should be the same")
-            }
-        }
+        expression := stmt.(Ast_Expression_Statement)
+        v := expression.expression.(Infix_Expression)
+        testing.expectf(t, v.operator == test.operator, "operators should be the same. Got: %s, Expected: %s", v.operator, test.operator)
+    }
+}
+
+@test
+parser_test_precendence :: proc(t: ^testing.T) {
+    Prec_Test :: struct {
+        input: string,
+        expected: string,
+    }
+
+    tests := []Prec_Test{
+        {
+            "-a * b",
+            "((-a) * b)",
+        },
+        {
+            "!-a",
+            "(!(-a))",
+        },
+        {
+            "a + b + c",
+            "((a + b) + c)",
+        },
+        {
+            "a + b - c",
+            "((a + b) - c)",
+        },
+        {
+            "a * b * c",
+            "((a * b) * c)",
+        },
+        {
+            "a * b / c",
+            "((a * b) / c)",
+        },
+        {
+            "a + b / c",
+            "(a + (b / c))",
+        },
+        {
+            "a + b * c + d / e -f",
+            "(((a + (b * c)) + (d / e)) - f)",
+        },
+        {
+            "3 + 4; -5 * 5",
+            "(3 + 4)((-5) * 5)",
+        },
+        {
+            "5 > 4 == 3 < 4",
+            "((5 > 4) == (3 < 4))",
+        },
+        {
+            "5 > 4 != 3 > 4",
+            "((5 > 4) != (3 > 4))",
+        },
+        {
+            "3 + 4 * 5 == 3 * 1 + 4 * 5",
+            "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+        },
+    }
+
+    for test, index in tests {
+        defer free_all(context.allocator)
+        l := lexer_init(test.input)
+        p := parser_init(l)
+        program := parse_program(p)
+        check_parser_errors(t, p)
+        actual := to_string(program)
+        testing.expectf(t, actual == test.expected, "Expected: %s, got: %s", test.expected, actual)
+
+        
     }
 }
 

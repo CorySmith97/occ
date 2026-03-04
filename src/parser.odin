@@ -11,8 +11,6 @@ import "core:log"
 // I could also use some more function overrides in order to better implement things
 // ie the way that append() in the base of the language works.
 
-
-// @todo:cs integers are taking the parse_expression path and throwing errors.
 Ast_Node_Tag :: enum {
     expression,
     statement,
@@ -212,41 +210,48 @@ curr_precedence :: proc(p: ^Parser) -> Expression_Precedence {
 }
 
 parse_infix_expression :: proc(p: ^Parser, lhs: ^Expression) -> ^Expression {
-    ex := new(Infix_Expression)
+    ex := new(Expression)
 
-    ex.token = p.curr_token
-    ex.operator = p.curr_token.literal
-    ex.lhs = lhs
+    exp := Infix_Expression{}
+
+    exp.token = p.curr_token
+    exp.operator = p.curr_token.literal
+    exp.lhs = lhs
     precedence := curr_precedence(p)
     next_token(p)
-    ex.rhs = parse_expression(p, precedence)
+    exp.rhs = parse_expression(p, precedence)
 
-    return auto_cast ex
+    ex^ = exp
+    return ex
 }
 
 parse_prefix_expression :: proc(p: ^Parser) -> ^Expression {
-    ex := new(Prefix_Expression)
+    exp := new(Expression)
+    pre := Prefix_Expression{}
 
-    ex.token = p.curr_token
-    ex.operator = p.curr_token.literal
+    pre.token = p.curr_token
+    pre.operator = p.curr_token.literal
 
     next_token(p)
 
-    ex.right = parse_expression(p, .prefix)
+    pre.right = parse_expression(p, .prefix)
 
-    return auto_cast ex
+    exp^ = pre
+
+    return exp
 }
 
 parse_let_statement :: proc(p: ^Parser) -> ^Ast_Statement {
-    stmt := new(Ast_Let_Statement)
+    stmt := new(Ast_Statement)
+    let := Ast_Let_Statement{}
 
     if !expect_peek(p, .ident) {
         return nil
     }
 
-    stmt.identitifer       = new(Identitifer)
-    stmt.identitifer.token = p.curr_token 
-    stmt.identitifer.value = p.curr_token.literal
+    let.identitifer       = new(Identitifer)
+    let.identitifer.token = p.curr_token 
+    let.identitifer.value = p.curr_token.literal
 
     if !expect_peek(p, .assign) {
         return nil
@@ -256,12 +261,16 @@ parse_let_statement :: proc(p: ^Parser) -> ^Ast_Statement {
         next_token(p)
     }
 
-    return auto_cast stmt
+    stmt^ = let
+
+    return stmt
 }
 
 parse_return_statement :: proc(p: ^Parser) -> ^Ast_Statement {
-    stmt := new(Ast_Return_Statement)
-    stmt.token = p.curr_token
+    stmt := new(Ast_Statement)
+    ret := Ast_Return_Statement{}
+
+    ret.token = p.curr_token
 
     next_token(p)
 
@@ -269,7 +278,9 @@ parse_return_statement :: proc(p: ^Parser) -> ^Ast_Statement {
         next_token(p)
     }
 
-    return auto_cast stmt
+    stmt^ = ret
+
+    return stmt
 }
 
 curr_token_is :: proc(p: ^Parser, tag: Token_Tag) -> b32 {
@@ -287,6 +298,7 @@ parse_statement :: proc(p: ^Parser) -> ^Ast_Statement {
     case .tok_return:
         return parse_return_statement(p)
     case:
+        log.log(.Debug, "This is trying to parse as an expression")
         return parse_expression_statement(p)
     }
     return nil
@@ -316,10 +328,11 @@ parse_expression :: proc(p: ^Parser, precedence: Expression_Precedence) -> ^Expr
 }
 
 parse_integer_literal :: proc(p: ^Parser) -> ^Expression {
-    lit := new(Integer_Literal)
+    exp := new(Expression)
+    literal := Integer_Literal{}
     ok: bool
 
-    lit.value, ok = strconv.parse_int(p.curr_token.literal)
+    literal.value, ok = strconv.parse_int(p.curr_token.literal)
 
     if !ok {
         add_error(p, Parser_Error{
@@ -329,29 +342,37 @@ parse_integer_literal :: proc(p: ^Parser) -> ^Expression {
             location = #line,
         })
     }
-    lit.token = p.curr_token
+    literal.token = p.curr_token
 
-    return auto_cast lit
+    exp^ = literal
+
+    return exp
 }
 
 parse_expression_statement :: proc(p: ^Parser) -> ^Ast_Statement {
-    stmt := new(Ast_Expression_Statement)
+    stmt := new(Ast_Statement)
+    exp := Ast_Expression_Statement{}
 
-    stmt.expression = parse_expression(p, .lowest)
+    exp.expression = parse_expression(p, .lowest)
 
     if peek_token_is(p, .semicolon) {
         next_token(p)
     }
 
-    return auto_cast stmt
+    stmt^ = exp
+
+    return stmt
 }
 
 parse_identifier :: proc(p: ^Parser) -> ^Expression {
-    ident := new(Identitifer)
-    ident.token = p.curr_token
-    ident.value = p.curr_token.literal
+    ident := new(Expression)
+    ii := Identitifer{}
+    ii.token = p.curr_token
+    ii.value = p.curr_token.literal
 
-    return auto_cast ident
+    ident^ = ii
+
+    return ident
 }
 
 parse_program :: proc(p: ^Parser) -> ^Program {
@@ -399,9 +420,17 @@ get_token_literal :: proc(program: ^Program) -> string {
 }
 
 to_string :: proc{
-    to_string_prefix_expression, 
     to_string_statement,
     to_string_expression,
+    to_string_program,
+}
+
+to_string_program :: proc(prog: ^Program) -> string {
+    ret_val: string
+    for stmt in prog.statements {
+        ret_val = strings.concatenate({ret_val, to_string_statement(stmt)})
+    }
+    return ret_val
 }
 
 to_string_expression :: proc(ex: ^Expression) -> string {
@@ -409,29 +438,25 @@ to_string_expression :: proc(ex: ^Expression) -> string {
     case Identitifer:
         return fmt.aprintf("%s", v.value)
     case Integer_Literal:
-        return fmt.aprintf("%d", v.value)
+        return fmt.aprintf("%s", v.token.literal)
     case Prefix_Expression:
-        return fmt.aprintf("(%s)", v.operator)
+        return fmt.aprintf("(%s%s)", v.operator, to_string(v.right))
     case Infix_Expression:
-        return fmt.aprintf("(%s)", v.operator)
+        return fmt.aprintf("(%s %s %s)", to_string_expression(v.lhs), v.operator, to_string_expression(v.rhs))
     }
 
     // fallback
     return ""
 }
 
-to_string_prefix_expression :: proc(pe: ^Prefix_Expression) -> string {
-    return fmt.aprintf("(%d %s)", pe.operator, to_string(pe.right))
-}
-
 to_string_statement :: proc(statement: ^Ast_Statement) -> string {
-    switch v in statement {
+    switch &v in statement {
     case Ast_Let_Statement:
         return fmt.aprintf("%v: %d", v.tag, v.identitifer.value)
     case Ast_Return_Statement:
         return fmt.aprintf("%v: %d", v.token.tag, v.return_value)
     case Ast_Expression_Statement:
-        return fmt.aprintf("%v: %s", v.expression, v.value)
+        return to_string_expression(v.expression)
     }
     return ""
 }
