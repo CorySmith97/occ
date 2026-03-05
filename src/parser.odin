@@ -43,6 +43,7 @@ Expression :: union {
     Integer_Literal,
     Prefix_Expression,
     Infix_Expression,
+    If_Expression,
 }
 
 Ast_Statement :: union { 
@@ -53,6 +54,18 @@ Ast_Statement :: union {
 
 Ast_Node :: union {
     Ast_Statement,
+}
+
+Block_Statement :: struct {
+    token: Token, // {
+    statements: [dynamic]Ast_Statement,
+}
+
+If_Expression :: struct {
+    token:       Token,
+    condition:   ^Expression,
+    consequence: ^Block_Statement,
+    alternate:   ^Block_Statement,
 }
 
 Prefix_Expression :: struct {
@@ -140,6 +153,7 @@ parser_init :: proc(lexer: ^Lexer) -> ^Parser {
     parser_register_prefix(p, .tok_false, parse_boolean)
     parser_register_prefix(p, .bang,      parse_prefix_expression)
     parser_register_prefix(p, .minus,     parse_prefix_expression)
+    parser_register_prefix(p, .lparen,    parse_grouped_expression)
 
     parser_register_infix(p, .plus,     parse_infix_expression)
     parser_register_infix(p, .minus,    parse_infix_expression)
@@ -215,6 +229,18 @@ curr_precedence :: proc(p: ^Parser) -> Expression_Precedence {
     }
 
     return .lowest
+}
+
+parse_grouped_expression :: proc(p: ^Parser) -> ^Expression {
+    next_token(p)
+
+    exp := parse_expression(p, .lowest)
+
+    if !expect_peek(p, .rparen) {
+        return nil
+    }
+
+    return exp
 }
 
 parse_infix_expression :: proc(p: ^Parser, lhs: ^Expression) -> ^Expression {
@@ -338,9 +364,8 @@ parse_expression :: proc(p: ^Parser, precedence: Expression_Precedence) -> ^Expr
 parse_boolean :: proc(p: ^Parser) -> ^Expression {
     exp := new(Expression)
     literal := Boolean{}
-    ok: bool
 
-    literal.value, ok = strconv.parse_bool(p.curr_token.literal)
+    value, ok := strconv.parse_bool(p.curr_token.literal)
     if !ok {
         add_error(p, Parser_Error{
             tag = .integer_parse_error,
@@ -349,6 +374,7 @@ parse_boolean :: proc(p: ^Parser) -> ^Expression {
             location = #line,
         })
     }
+    literal.value = value
     literal.token = p.curr_token
 
     exp^ = literal
@@ -452,6 +478,7 @@ to_string :: proc{
     to_string_statement,
     to_string_expression,
     to_string_program,
+    to_string_block_statement,
 }
 
 to_string_program :: proc(prog: ^Program) -> string {
@@ -462,10 +489,24 @@ to_string_program :: proc(prog: ^Program) -> string {
     return ret_val
 }
 
+to_string_block_statement :: proc(statement: ^Block_Statement) -> string {
+    out: string
+    for &stmt in statement.statements {
+        strings.concatenate({out, to_string_statement(&stmt)})
+    }
+    return out
+}
+
 to_string_expression :: proc(ex: ^Expression) -> string {
     switch v in ex {
+    case If_Expression:
+        if v.alternate != nil {
+            return fmt.aprintf("if %s %s else %s", to_string(v.condition), to_string(v.consequence), to_string(v.alternate))
+        } else {
+            return fmt.aprintf("if %s %s", to_string(v.condition), to_string(v.consequence))
+        }
     case Boolean:
-        return fmt.aprintf("%b", v.value)
+        return fmt.aprintf("%t", v.value)
     case Identitifer:
         return fmt.aprintf("%s", v.value)
     case Integer_Literal:

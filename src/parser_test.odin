@@ -43,7 +43,7 @@ parser_test :: proc(t: ^testing.T) {
         case Ast_Return_Statement:
             test_statement_return(t, &val)
         case Ast_Expression_Statement:
-            test_statement_expression(t, &val)
+            test_statement_expression(t, &val, test)
         }
         test_val, ok := value.(Ast_Let_Statement)
         if ok {
@@ -88,17 +88,20 @@ parser_test_integer_literal :: proc(t: ^testing.T) {
     }
 }
 
+Prefix_Test :: struct {
+    input: string,
+    operator: string,
+    integer_val: any,
+}
+
 @test
 parser_test_prefix_expression :: proc(t: ^testing.T) {
-    Prefix_Test :: struct {
-        input: string,
-        operator: string,
-        integer_val: int,
-    }
 
     tests := []Prefix_Test{
         {"!5;", "!", 5},
         {"-15;", "-", 15},
+        {"!true;", "!", true},
+        {"!false;", "!", false},
     }
 
     for test, index in tests {
@@ -115,8 +118,7 @@ parser_test_prefix_expression :: proc(t: ^testing.T) {
         stmt := program.statements[0]
         v := stmt.(Ast_Expression_Statement)
         prefix := v.expression.(Prefix_Expression)
-
-        testing.expectf(t, test.operator == prefix.operator, "Expected operator to be %s, got %s", test.operator, prefix.operator)
+        test_statement_expression(t, &v, test)
         // @todo:cs implement tests for prefixes
     }
 }
@@ -212,6 +214,26 @@ parser_test_precendence :: proc(t: ^testing.T) {
             "3 + 4 * 5 == 3 * 1 + 4 * 5",
             "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
         },
+        {
+            "1 + (2 + 3) + 4",
+            "((1 + (2 + 3)) + 4)",
+        },
+        {
+            "(5 + 5) * 2",
+            "((5 + 5) * 2)",
+        },
+        {
+            "2 / (5 + 5)",
+            "(2 / (5 + 5))",
+        },
+        {
+            "-(5 + 5)",
+            "(-(5 + 5))",
+        },
+        {
+            "!(true == true)",
+            "(!(true == true))",
+        },
     }
 
     for test, index in tests {
@@ -228,7 +250,7 @@ parser_test_precendence :: proc(t: ^testing.T) {
 }
 
 @test
-parser_test_expressions :: proc(t: ^testing.T) {
+parser_test_boolean :: proc(t: ^testing.T) {
     Expression_Test :: struct {
         input: string,
         value: bool,
@@ -237,32 +259,38 @@ parser_test_expressions :: proc(t: ^testing.T) {
     tests := [?]Expression_Test{
         {"true",   true,},
         {"false",  false,},
-        {"!true",  false,},
-        {"!false", true,},
     }
 
     for test, i in tests {
+        defer free_all(context.allocator)
+
+        l := lexer_init(test.input)
+        p := parser_init(l)
+
+        program := parse_program(p)
+        if program == nil {
+            testing.fail(t)
+        }
+
+        check_parser_errors(t, p)
+        stmt := program.statements[0]
+        exp, ok := stmt.(Ast_Expression_Statement)
+        if !ok {
+            testing.fail(t)
+        }
+        test_statement_expression(t, &exp, test.value)
+    }
+}
+
+@test
+parser_test_if :: proc(t: ^testing.T) {
+    input := "if (x < y) {x} else {y}"
+
     defer free_all(context.allocator)
 
-    l := lexer_init(test.input)
+    l := lexer_init(input)
     p := parser_init(l)
-
     program := parse_program(p)
-    if program == nil {
-        testing.fail(t)
-    }
-
-    check_parser_errors(t, p)
-        value := program.statements[i]
-        switch &val in program.statements[i] {
-        case Ast_Let_Statement:
-            test_statement_let(t, &val)
-        case Ast_Return_Statement:
-            test_statement_return(t, &val)
-        case Ast_Expression_Statement:
-            test_statement_expression(t, &val)
-        }
-    }
 }
 
 test_integer_literal :: proc(t: ^testing.T, ex: ^Expression, expected: int) {
@@ -281,7 +309,40 @@ test_statement_let :: proc(t: ^testing.T, stmt: ^Ast_Let_Statement) {
 test_statement_return :: proc(t: ^testing.T, stmt: ^Ast_Return_Statement) {
 }
 
-test_statement_expression :: proc(t: ^testing.T, stmt: ^Ast_Expression_Statement) {
+test_statement_expression :: proc(t: ^testing.T, stmt: ^Ast_Expression_Statement, expected: any) {
+    switch v in stmt.expression {
+    case If_Expression:
+    case Boolean:
+        exp, ok := expected.(bool)
+        if !ok {
+            testing.fail(t)
+        }
+        testing.expectf(t, v.value == exp, "Expected: %b, got: %b", exp, v.value)
+    case Integer_Literal:
+        exp, ok := expected.(int)
+        if !ok {
+            testing.fail(t)
+        }
+        testing.expectf(t, v.value == exp, "Expected: %d, got: %d", exp, v.value)
+    case Infix_Expression:
+        exp, ok := expected.(string)
+        if !ok {
+            testing.fail(t)
+        }
+        testing.expectf(t, v.operator == exp, "Expected: %s, got: %s", exp, v.operator)
+    case Prefix_Expression:
+        exp, ok := expected.(Prefix_Test)
+        if !ok {
+            testing.fail(t)
+        }
+        testing.expectf(t, v.operator == exp.operator, "Expected: %s, got: %s", exp.operator, v.operator)
+    case Identitifer:
+        exp, ok := expected.(string)
+        if !ok {
+            testing.fail(t)
+        }
+        testing.expectf(t, v.value == exp, "Expected: %s, got: %s", exp, v.value)
+    }
 }
 
 test_identitifer :: proc(t: ^testing.T, stmt: ^Expression, value: string) {
